@@ -17,7 +17,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(bot)
 dp.middleware.setup(LoggingMiddleware())
 
-# Функция для загрузки участников из JSON файла
+# Функция для загрузки участников
 async def load_members():
     """Загружает список участников из JSON файла"""
     try:
@@ -25,7 +25,6 @@ async def load_members():
             content = await file.read()
             data = json.loads(content)
             
-            # Проверяем структуру данных
             if isinstance(data, dict):
                 return data.get('members', [])
             elif isinstance(data, list):
@@ -33,13 +32,11 @@ async def load_members():
             else:
                 return []
     except FileNotFoundError:
-        logging.error(f"Файл {MEMBERS_FILE} не найден!")
         return []
     except json.JSONDecodeError:
-        logging.error(f"Ошибка в формате JSON файла {MEMBERS_FILE}")
         return []
 
-# Функция для сохранения участников в JSON файл
+# Функция для сохранения участников
 async def save_members(members):
     """Сохраняет список участников в JSON файл"""
     try:
@@ -48,7 +45,7 @@ async def save_members(members):
             await file.write(json.dumps(data, ensure_ascii=False, indent=4))
         return True
     except Exception as e:
-        logging.error(f"Ошибка при сохранении файла: {e}")
+        logging.error(f"Ошибка при сохранении: {e}")
         return False
 
 # Команда /start
@@ -79,15 +76,12 @@ async def cmd_tag(message: types.Message):
         await message.answer("❌ Список участников пуст!")
         return
     
-    # Проверяем, что бот находится в группе
     if message.chat.type not in ['group', 'supergroup']:
         await message.answer("❌ Эта команда работает только в группах!")
         return
     
-    # Создаем текст с тегами
     tags = ' '.join(members)
     
-    # Проверяем длину сообщения
     if len(tags) > 4000:
         chunk_size = 50
         for i in range(0, len(members), chunk_size):
@@ -97,7 +91,7 @@ async def cmd_tag(message: types.Message):
     else:
         await message.answer(f"👥 Тегаю всех:\n{tags}")
 
-# Команда для показа списка участников
+# Команда для показа списка
 @dp.message_handler(commands=['list'])
 async def cmd_list(message: types.Message):
     members = await load_members()
@@ -109,13 +103,13 @@ async def cmd_list(message: types.Message):
     members_list = '\n'.join([f"{i+1}. {member}" for i, member in enumerate(members)])
     await message.answer(f"📋 Список участников ({len(members)}):\n\n{members_list}")
 
-# Команда для добавления участника
+# Команда для добавления
 @dp.message_handler(commands=['add'])
 async def cmd_add(message: types.Message):
     args = message.get_args().strip()
     
     if not args:
-        await message.answer("❌ Укажите username для добавления!\nПример: /add @username")
+        await message.answer("❌ Укажите username!\nПример: /add @username")
         return
     
     if not args.startswith('@'):
@@ -124,23 +118,23 @@ async def cmd_add(message: types.Message):
     members = await load_members()
     
     if args in members:
-        await message.answer(f"❌ Участник {args} уже есть в списке!")
+        await message.answer(f"❌ Участник {args} уже есть!")
         return
     
     members.append(args)
     
     if await save_members(members):
-        await message.answer(f"✅ Участник {args} успешно добавлен!")
+        await message.answer(f"✅ Участник {args} добавлен!")
     else:
-        await message.answer("❌ Ошибка при сохранении списка!")
+        await message.answer("❌ Ошибка сохранения!")
 
-# Команда для удаления участника
+# Команда для удаления
 @dp.message_handler(commands=['remove'])
 async def cmd_remove(message: types.Message):
     args = message.get_args().strip()
     
     if not args:
-        await message.answer("❌ Укажите username для удаления!\nПример: /remove @username")
+        await message.answer("❌ Укажите username!\nПример: /remove @username")
         return
     
     if not args.startswith('@'):
@@ -149,50 +143,48 @@ async def cmd_remove(message: types.Message):
     members = await load_members()
     
     if args not in members:
-        await message.answer(f"❌ Участник {args} не найден в списке!")
+        await message.answer(f"❌ Участник {args} не найден!")
         return
     
     members.remove(args)
     
     if await save_members(members):
-        await message.answer(f"✅ Участник {args} успешно удален!")
+        await message.answer(f"✅ Участник {args} удален!")
     else:
-        await message.answer("❌ Ошибка при сохранении списка!")
+        await message.answer("❌ Ошибка сохранения!")
 
-# Команда для очистки списка
+# Команда для очистки
 @dp.message_handler(commands=['clear'])
 async def cmd_clear(message: types.Message):
     if await save_members([]):
-        await message.answer("✅ Список участников очищен!")
+        await message.answer("✅ Список очищен!")
     else:
-        await message.answer("❌ Ошибка при очистке списка!")
+        await message.answer("❌ Ошибка!")
 
-# ⚠️ ВАЖНО: Обрабатываем ТОЛЬКО неизвестные команды (начинающиеся с /)
+# Только для неизвестных команд
 @dp.message_handler(lambda message: message.text and message.text.startswith('/'))
 async def unknown_command(message: types.Message):
-    await message.answer("❌ Неизвестная команда. Используйте /help для списка команд.")
+    await message.answer("❌ Неизвестная команда. Используйте /help")
 
-# Запуск бота
+# Запуск
 if __name__ == '__main__':
-    # Создаем или проверяем файл members.json
-    if not os.path.exists(MEMBERS_FILE):
-        with open(MEMBERS_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'members': []}, f, ensure_ascii=False, indent=4)
-        print(f"✅ Создан файл {MEMBERS_FILE}")
-    else:
-        # Проверяем структуру существующего файла
+    # Проверяем и конвертируем существующий файл если нужно
+    if os.path.exists(MEMBERS_FILE):
         try:
             with open(MEMBERS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
+            # Если файл - список, конвертируем в словарь
             if isinstance(data, list):
                 with open(MEMBERS_FILE, 'w', encoding='utf-8') as f:
                     json.dump({'members': data}, f, ensure_ascii=False, indent=4)
-                print(f"✅ Файл {MEMBERS_FILE} преобразован в правильный формат")
+                print("✅ Существующие данные сохранены и сконвертированы")
         except:
             pass
+    else:
+        with open(MEMBERS_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'members': []}, f, ensure_ascii=False, indent=4)
     
     print("🚀 Бот запущен!")
     print("📝 Бот отвечает ТОЛЬКО на команды, начинающиеся с /")
-    print("💬 Обычные сообщения в чате игнорируются")
     executor.start_polling(dp, skip_updates=True)
