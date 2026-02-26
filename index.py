@@ -3,7 +3,6 @@ import json
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
-from aiogram.types import ParseMode
 from aiogram.utils import executor
 import aiofiles
 import os
@@ -28,10 +27,8 @@ async def load_members():
             
             # Проверяем структуру данных
             if isinstance(data, dict):
-                # Если это словарь с ключом 'members'
                 return data.get('members', [])
             elif isinstance(data, list):
-                # Если это просто список
                 return data
             else:
                 return []
@@ -46,7 +43,6 @@ async def load_members():
 async def save_members(members):
     """Сохраняет список участников в JSON файл"""
     try:
-        # Сохраняем как словарь с ключом 'members' для единообразия
         data = {'members': members}
         async with aiofiles.open(MEMBERS_FILE, 'w', encoding='utf-8') as file:
             await file.write(json.dumps(data, ensure_ascii=False, indent=4))
@@ -65,6 +61,7 @@ async def cmd_start(message: types.Message):
         "/list - показать список участников\n"
         "/add @username - добавить участника\n"
         "/remove @username - удалить участника\n"
+        "/clear - очистить список\n"
         "/help - показать это сообщение"
     )
 
@@ -90,14 +87,13 @@ async def cmd_tag(message: types.Message):
     # Создаем текст с тегами
     tags = ' '.join(members)
     
-    # Проверяем длину сообщения (ограничение Telegram - 4096 символов)
+    # Проверяем длину сообщения
     if len(tags) > 4000:
-        # Если слишком много участников, разбиваем на несколько сообщений
-        chunk_size = 50  # По 50 участников в сообщении
+        chunk_size = 50
         for i in range(0, len(members), chunk_size):
             chunk = members[i:i + chunk_size]
             await message.answer(' '.join(chunk))
-            await asyncio.sleep(0.5)  # Небольшая задержка между сообщениями
+            await asyncio.sleep(0.5)
     else:
         await message.answer(f"👥 Тегаю всех:\n{tags}")
 
@@ -110,36 +106,29 @@ async def cmd_list(message: types.Message):
         await message.answer("📋 Список участников пуст!")
         return
     
-    # Форматируем список
     members_list = '\n'.join([f"{i+1}. {member}" for i, member in enumerate(members)])
     await message.answer(f"📋 Список участников ({len(members)}):\n\n{members_list}")
 
 # Команда для добавления участника
 @dp.message_handler(commands=['add'])
 async def cmd_add(message: types.Message):
-    # Получаем аргументы команды
     args = message.get_args().strip()
     
     if not args:
         await message.answer("❌ Укажите username для добавления!\nПример: /add @username")
         return
     
-    # Проверяем формат username
     if not args.startswith('@'):
         args = '@' + args
     
-    # Загружаем текущий список
     members = await load_members()
     
-    # Проверяем, есть ли уже такой участник
     if args in members:
         await message.answer(f"❌ Участник {args} уже есть в списке!")
         return
     
-    # Добавляем нового участника
     members.append(args)
     
-    # Сохраняем обновленный список
     if await save_members(members):
         await message.answer(f"✅ Участник {args} успешно добавлен!")
     else:
@@ -148,68 +137,62 @@ async def cmd_add(message: types.Message):
 # Команда для удаления участника
 @dp.message_handler(commands=['remove'])
 async def cmd_remove(message: types.Message):
-    # Получаем аргументы команды
     args = message.get_args().strip()
     
     if not args:
         await message.answer("❌ Укажите username для удаления!\nПример: /remove @username")
         return
     
-    # Проверяем формат username
     if not args.startswith('@'):
         args = '@' + args
     
-    # Загружаем текущий список
     members = await load_members()
     
-    # Проверяем, есть ли такой участник
     if args not in members:
         await message.answer(f"❌ Участник {args} не найден в списке!")
         return
     
-    # Удаляем участника
     members.remove(args)
     
-    # Сохраняем обновленный список
     if await save_members(members):
         await message.answer(f"✅ Участник {args} успешно удален!")
     else:
         await message.answer("❌ Ошибка при сохранении списка!")
 
-# Команда для инициализации/очистки списка
+# Команда для очистки списка
 @dp.message_handler(commands=['clear'])
 async def cmd_clear(message: types.Message):
-    """Очищает список участников"""
     if await save_members([]):
         await message.answer("✅ Список участников очищен!")
     else:
         await message.answer("❌ Ошибка при очистке списка!")
 
-# Обработчик для неизвестных команд
-@dp.message_handler()
+# ⚠️ ВАЖНО: Обрабатываем ТОЛЬКО неизвестные команды (начинающиеся с /)
+@dp.message_handler(lambda message: message.text and message.text.startswith('/'))
 async def unknown_command(message: types.Message):
     await message.answer("❌ Неизвестная команда. Используйте /help для списка команд.")
 
 # Запуск бота
 if __name__ == '__main__':
-    # Создаем файл members.json если его нет
+    # Создаем или проверяем файл members.json
     if not os.path.exists(MEMBERS_FILE):
         with open(MEMBERS_FILE, 'w', encoding='utf-8') as f:
             json.dump({'members': []}, f, ensure_ascii=False, indent=4)
-        print(f"Создан файл {MEMBERS_FILE}")
+        print(f"✅ Создан файл {MEMBERS_FILE}")
     else:
-        # Проверяем и исправляем структуру существующего файла
+        # Проверяем структуру существующего файла
         try:
             with open(MEMBERS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Если файл содержит список, преобразуем его в словарь
             if isinstance(data, list):
                 with open(MEMBERS_FILE, 'w', encoding='utf-8') as f:
                     json.dump({'members': data}, f, ensure_ascii=False, indent=4)
-                print(f"Файл {MEMBERS_FILE} преобразован в правильный формат")
+                print(f"✅ Файл {MEMBERS_FILE} преобразован в правильный формат")
         except:
             pass
     
-    print("Бот запущен!")
+    print("🚀 Бот запущен!")
+    print("📝 Бот отвечает ТОЛЬКО на команды, начинающиеся с /")
+    print("💬 Обычные сообщения в чате игнорируются")
     executor.start_polling(dp, skip_updates=True)
