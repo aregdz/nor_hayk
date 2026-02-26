@@ -1,11 +1,12 @@
 import asyncio
 import json
 import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
-from aiogram.utils import executor
-import aiofiles
 import os
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.types import Message
+from aiogram.utils.markdown import text
+import aiofiles
 
 from config import BOT_TOKEN, MEMBERS_FILE
 
@@ -14,8 +15,7 @@ logging.basicConfig(level=logging.INFO)
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
-dp.middleware.setup(LoggingMiddleware())
+dp = Dispatcher()
 
 # Функция для загрузки участников
 async def load_members():
@@ -49,8 +49,8 @@ async def save_members(members):
         return False
 
 # Команда /start
-@dp.message_handler(commands=['start'])
-async def cmd_start(message: types.Message):
+@dp.message(Command('start'))
+async def cmd_start(message: Message):
     await message.answer(
         "👋 Привет! Я бот для тегания участников.\n\n"
         "Доступные команды:\n"
@@ -63,13 +63,13 @@ async def cmd_start(message: types.Message):
     )
 
 # Команда /help
-@dp.message_handler(commands=['help'])
-async def cmd_help(message: types.Message):
+@dp.message(Command('help'))
+async def cmd_help(message: Message):
     await cmd_start(message)
 
 # Команда для тегания всех участников
-@dp.message_handler(commands=['tag'])
-async def cmd_tag(message: types.Message):
+@dp.message(Command('tag'))
+async def cmd_tag(message: Message):
     members = await load_members()
     
     if not members:
@@ -92,8 +92,8 @@ async def cmd_tag(message: types.Message):
         await message.answer(f"👥 Тегаю всех:\n{tags}")
 
 # Команда для показа списка
-@dp.message_handler(commands=['list'])
-async def cmd_list(message: types.Message):
+@dp.message(Command('list'))
+async def cmd_list(message: Message):
     members = await load_members()
     
     if not members:
@@ -104,9 +104,9 @@ async def cmd_list(message: types.Message):
     await message.answer(f"📋 Список участников ({len(members)}):\n\n{members_list}")
 
 # Команда для добавления
-@dp.message_handler(commands=['add'])
-async def cmd_add(message: types.Message):
-    args = message.get_args().strip()
+@dp.message(Command('add'))
+async def cmd_add(message: Message):
+    args = message.text.replace('/add', '').strip()
     
     if not args:
         await message.answer("❌ Укажите username!\nПример: /add @username")
@@ -129,9 +129,9 @@ async def cmd_add(message: types.Message):
         await message.answer("❌ Ошибка сохранения!")
 
 # Команда для удаления
-@dp.message_handler(commands=['remove'])
-async def cmd_remove(message: types.Message):
-    args = message.get_args().strip()
+@dp.message(Command('remove'))
+async def cmd_remove(message: Message):
+    args = message.text.replace('/remove', '').strip()
     
     if not args:
         await message.answer("❌ Укажите username!\nПример: /remove @username")
@@ -154,37 +154,40 @@ async def cmd_remove(message: types.Message):
         await message.answer("❌ Ошибка сохранения!")
 
 # Команда для очистки
-@dp.message_handler(commands=['clear'])
-async def cmd_clear(message: types.Message):
+@dp.message(Command('clear'))
+async def cmd_clear(message: Message):
     if await save_members([]):
         await message.answer("✅ Список очищен!")
     else:
         await message.answer("❌ Ошибка!")
 
-# Только для неизвестных команд
-@dp.message_handler(lambda message: message.text and message.text.startswith('/'))
-async def unknown_command(message: types.Message):
+# Обработчик неизвестных команд
+@dp.message(lambda message: message.text and message.text.startswith('/'))
+async def unknown_command(message: Message):
     await message.answer("❌ Неизвестная команда. Используйте /help")
 
-# Запуск
-if __name__ == '__main__':
-    # Проверяем и конвертируем существующий файл если нужно
+# Запуск бота
+async def main():
+    # Проверяем и создаем файл если нужно
     if os.path.exists(MEMBERS_FILE):
         try:
             with open(MEMBERS_FILE, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Если файл - список, конвертируем в словарь
             if isinstance(data, list):
                 with open(MEMBERS_FILE, 'w', encoding='utf-8') as f:
                     json.dump({'members': data}, f, ensure_ascii=False, indent=4)
-                print("✅ Существующие данные сохранены и сконвертированы")
+                print("✅ Существующие данные сконвертированы")
         except:
             pass
     else:
         with open(MEMBERS_FILE, 'w', encoding='utf-8') as f:
             json.dump({'members': []}, f, ensure_ascii=False, indent=4)
+        print(f"✅ Создан файл {MEMBERS_FILE}")
     
     print("🚀 Бот запущен!")
-    print("📝 Бот отвечает ТОЛЬКО на команды, начинающиеся с /")
-    executor.start_polling(dp, skip_updates=True)
+    print("📝 Бот отвечает ТОЛЬКО на команды")
+    await dp.start_polling(bot)
+
+if __name__ == '__main__':
+    asyncio.run(main())
