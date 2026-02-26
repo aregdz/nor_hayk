@@ -3,9 +3,10 @@ import json
 import logging
 import os
 from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
-from aiogram.types import ParseMode
-from aiogram.utils import executor
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.filters import Command
+from aiogram.types import Message
 from aiogram.utils.markdown import text
 import aiofiles
 
@@ -15,9 +16,8 @@ from config import BOT_TOKEN, MEMBERS_FILE
 logging.basicConfig(level=logging.INFO)
 
 # Инициализация бота и диспетчера
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(bot)
-dp.middleware.setup(LoggingMiddleware())
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
+dp = Dispatcher()
 
 # Функция для загрузки участников
 async def load_members():
@@ -86,8 +86,8 @@ def format_members_list(members):
     return '\n'.join(formatted)
 
 # Команда /start
-@dp.message_handler(commands=['start'])
-async def cmd_start(message: types.Message):
+@dp.message(Command('start'))
+async def cmd_start(message: Message):
     await message.answer(
         "👋 Привет! Я бот для тегания участников.\n\n"
         "📝 **Основные команды:**\n"
@@ -103,18 +103,17 @@ async def cmd_start(message: types.Message):
         "🔹 **Для участников без username:**\n"
         "/register - зарегистрироваться в боте (в личке)\n"
         "/myname Имя - установить имя (после регистрации)\n"
-        "/help - показать это сообщение",
-        parse_mode=ParseMode.MARKDOWN
+        "/help - показать это сообщение"
     )
 
 # Команда /help
-@dp.message_handler(commands=['help'])
-async def cmd_help(message: types.Message):
+@dp.message(Command('help'))
+async def cmd_help(message: Message):
     await cmd_start(message)
 
 # Команда для регистрации (только в личке)
-@dp.message_handler(commands=['register'])
-async def cmd_register(message: types.Message):
+@dp.message(Command('register'))
+async def cmd_register(message: Message):
     # Проверяем, что это личные сообщения
     if message.chat.type != 'private':
         await message.answer("❌ Команда /register работает только в личных сообщениях с ботом!")
@@ -161,18 +160,19 @@ async def cmd_register(message: types.Message):
         )
 
 # Команда для изменения имени
-@dp.message_handler(commands=['myname'])
-async def cmd_myname(message: types.Message):
+@dp.message(Command('myname'))
+async def cmd_myname(message: Message):
     if message.chat.type != 'private':
         await message.answer("❌ Команда /myname работает только в личных сообщениях!")
         return
     
-    args = message.get_args().strip()
+    args = message.text.split(maxsplit=1)
     
-    if not args:
+    if len(args) < 2:
         await message.answer("❌ Укажите имя!\nПример: /myname Давид")
         return
     
+    new_name = args[1].strip()
     user_id = message.from_user.id
     members = await load_members()
     
@@ -180,19 +180,19 @@ async def cmd_myname(message: types.Message):
     found = False
     for member in members:
         if member.get('type') == 'id' and member.get('user_id') == user_id:
-            member['name'] = args
+            member['name'] = new_name
             found = True
             break
     
     if found:
         await save_members(members)
-        await message.answer(f"✅ Имя изменено на {args}!")
+        await message.answer(f"✅ Имя изменено на {new_name}!")
     else:
         await message.answer("❌ Вы не зарегистрированы! Используйте /register")
 
 # Команда для тегания всех участников
-@dp.message_handler(commands=['tag'])
-async def cmd_tag(message: types.Message):
+@dp.message(Command('tag'))
+async def cmd_tag(message: Message):
     members = await load_members()
     
     if not members:
@@ -219,14 +219,14 @@ async def cmd_tag(message: types.Message):
         chunk_size = 30
         for i in range(0, len(mentions), chunk_size):
             chunk = mentions[i:i + chunk_size]
-            await message.answer(' '.join(chunk), parse_mode=ParseMode.MARKDOWN)
+            await message.answer(' '.join(chunk))
             await asyncio.sleep(0.5)
     else:
-        await message.answer(f"👥 Тегаю всех:\n{tags}", parse_mode=ParseMode.MARKDOWN)
+        await message.answer(f"👥 Тегаю всех:\n{tags}")
 
 # Команда для показа списка
-@dp.message_handler(commands=['list'])
-async def cmd_list(message: types.Message):
+@dp.message(Command('list'))
+async def cmd_list(message: Message):
     members = await load_members()
     
     if not members:
@@ -237,47 +237,48 @@ async def cmd_list(message: types.Message):
     await message.answer(f"📋 Список участников ({len(members)}):\n\n{members_list}")
 
 # Команда для добавления по username
-@dp.message_handler(commands=['add'])
-async def cmd_add(message: types.Message):
-    args = message.get_args().strip()
+@dp.message(Command('add'))
+async def cmd_add(message: Message):
+    args = message.text.split(maxsplit=1)
     
-    if not args:
+    if len(args) < 2:
         await message.answer("❌ Укажите username!\nПример: /add @username")
         return
     
-    if not args.startswith('@'):
-        args = '@' + args
+    username = args[1].strip()
+    if not username.startswith('@'):
+        username = '@' + username
     
     members = await load_members()
     
     # Проверяем, есть ли уже такой username
     for member in members:
-        if member.get('type') == 'username' and member.get('value') == args:
-            await message.answer(f"❌ Участник {args} уже есть!")
+        if member.get('type') == 'username' and member.get('value') == username:
+            await message.answer(f"❌ Участник {username} уже есть!")
             return
     
     members.append({
         'type': 'username',
-        'value': args
+        'value': username
     })
     
     if await save_members(members):
-        await message.answer(f"✅ Участник {args} добавлен!")
+        await message.answer(f"✅ Участник {username} добавлен!")
     else:
         await message.answer("❌ Ошибка сохранения!")
 
 # Команда для добавления по ID
-@dp.message_handler(commands=['addbyid'])
-async def cmd_add_by_id(message: types.Message):
-    args = message.get_args().strip().split(maxsplit=1)
+@dp.message(Command('addbyid'))
+async def cmd_add_by_id(message: Message):
+    args = message.text.split(maxsplit=2)
     
-    if len(args) < 2:
+    if len(args) < 3:
         await message.answer("❌ Укажите ID и имя!\nПример: /addbyid 123456789 Давид")
         return
     
     try:
-        user_id = int(args[0])
-        name = args[1]
+        user_id = int(args[1])
+        name = args[2].strip()
     except ValueError:
         await message.answer("❌ ID должен быть числом!")
         return
@@ -302,32 +303,33 @@ async def cmd_add_by_id(message: types.Message):
         await message.answer("❌ Ошибка сохранения!")
 
 # Команда для удаления
-@dp.message_handler(commands=['remove'])
-async def cmd_remove(message: types.Message):
-    args = message.get_args().strip()
+@dp.message(Command('remove'))
+async def cmd_remove(message: Message):
+    args = message.text.split(maxsplit=1)
     
-    if not args:
+    if len(args) < 2:
         await message.answer("❌ Укажите username или ID!\nПример: /remove @username\nИли: /remove 123456789")
         return
     
+    identifier = args[1].strip()
     members = await load_members()
     
     # Пробуем удалить по username
-    if args.startswith('@'):
+    if identifier.startswith('@'):
         for i, member in enumerate(members):
-            if member.get('type') == 'username' and member.get('value') == args:
+            if member.get('type') == 'username' and member.get('value') == identifier:
                 removed = members.pop(i)
                 if await save_members(members):
-                    await message.answer(f"✅ Участник {args} удален!")
+                    await message.answer(f"✅ Участник {identifier} удален!")
                 else:
                     await message.answer("❌ Ошибка сохранения!")
                 return
-        await message.answer(f"❌ Участник {args} не найден!")
+        await message.answer(f"❌ Участник {identifier} не найден!")
     
     # Пробуем удалить по ID
     else:
         try:
-            user_id = int(args)
+            user_id = int(identifier)
             for i, member in enumerate(members):
                 if member.get('type') == 'id' and member.get('user_id') == user_id:
                     removed = members.pop(i)
@@ -341,20 +343,20 @@ async def cmd_remove(message: types.Message):
             await message.answer("❌ Неверный формат! Используйте @username или ID")
 
 # Команда для очистки
-@dp.message_handler(commands=['clear'])
-async def cmd_clear(message: types.Message):
+@dp.message(Command('clear'))
+async def cmd_clear(message: Message):
     if await save_members([]):
         await message.answer("✅ Список очищен!")
     else:
         await message.answer("❌ Ошибка!")
 
 # Обработчик неизвестных команд
-@dp.message_handler(lambda message: message.text and message.text.startswith('/'))
-async def unknown_command(message: types.Message):
+@dp.message(lambda message: message.text and message.text.startswith('/'))
+async def unknown_command(message: Message):
     await message.answer("❌ Неизвестная команда. Используйте /help")
 
 # Запуск бота
-if __name__ == '__main__':
+async def main():
     # Конвертируем старый формат в новый при запуске
     if os.path.exists(MEMBERS_FILE):
         try:
@@ -398,4 +400,7 @@ if __name__ == '__main__':
     
     print("🚀 Бот запущен!")
     print("📝 Бот отвечает ТОЛЬКО на команды")
-    executor.start_polling(dp, skip_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == '__main__':
+    asyncio.run(main())
